@@ -16,12 +16,12 @@ runs:
 
   steps:
     - name: install python deps
-      shell: powershell
+      shell: pwsh
       run: |
-        & "C:\Users\Conrado\AppData\Local\Programs\Python\Python313\python.exe" -m pip install pyzipper
+        python -m pip install pyzipper
 
     - name: Decrypt and Mask
-      shell: powershell
+      shell: pwsh
       run: |
         $lines = @(
           'import pyzipper'
@@ -41,5 +41,6 @@ runs:
           ''
           'print(f"Successfully masked {len(secrets)} secrets.")'
         )
+
         Set-Content -Path decrypt_secrets.py -Value $lines -Encoding UTF8
-        py decrypt_secrets.py
+        python decrypt_secrets.py
