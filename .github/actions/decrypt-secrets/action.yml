@@ -19,7 +19,7 @@ runs:
     - name: Decrypt and Mask
       shell: bash
       run: |
-        python3 -c @'
+        $script = @'
         import pyzipper
         import json
         import os
