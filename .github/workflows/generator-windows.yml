@@ -424,6 +424,31 @@ jobs:
           flutter pub run flutter_launcher_icons
           cd ..
 
+      - name: Setup MSVC environment
+        shell: powershell
+        run: |
+          $vsDevCmd = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
+
+          if (!(Test-Path $vsDevCmd)) {
+            throw "VsDevCmd.bat not found: $vsDevCmd"
+          }
+
+          cmd.exe /c "`"$vsDevCmd`" -arch=x64 && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+
+          Write-Host "MSVC environment loaded"
+
+      - name: Verify MSVC
+        shell: powershell
+        run: |
+          where.exe cl
+          where.exe link
+          cl
+          link
+
       - name: Build rustdesk
         run: |
           # Windows: build RustDesk
