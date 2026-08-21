@@ -267,7 +267,7 @@ jobs:
           timeout_minutes: 5
           max_attempts: 3
           retry_wait_seconds: 15
-          shell: pwsh
+          shell: powershell
           command: |
             Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/allowCustom.py -OutFile allowCustom.py
             python allowCustom.py
@@ -347,7 +347,7 @@ jobs:
           timeout_minutes: 5
           max_attempts: 3
           retry_wait_seconds: 15
-          shell: pwsh
+          shell: powershell
           command: |
             Invoke-WebRequest -Uri ${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}"&"uuid=${{ env.iconlink_uuid }} -OutFile ./res/iconx.png 
             mv ./res/icon.ico ./res/icon.ico.bak
@@ -390,7 +390,7 @@ jobs:
           timeout_minutes: 5
           max_attempts: 3
           retry_wait_seconds: 15
-          shell: pwsh
+          shell: powershell
           continue_on_error: true
           command: |
             Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/xoffline.diff -OutFile xoffline.diff
@@ -478,7 +478,7 @@ jobs:
           timeout_minutes: 5
           max_attempts: 3
           retry_wait_seconds: 15
-          shell: pwsh
+          shell: powershell
           continue_on_error: true
           command: |
             Invoke-WebRequest -Uri ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }} -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
@@ -508,7 +508,7 @@ jobs:
       
       - name: zip dlls
         continue-on-error: true
-        shell: pwsh
+        shell: powershell
         run: |
           Compress-Archive -Path ./rustdesk/*.dll, ./rustdesk/*.exe -DestinationPath ./rustdesk/unsigned_files.zip -CompressionLevel Fastest
 
@@ -528,7 +528,7 @@ jobs:
 
       - name: unzip dlls
         continue-on-error: true
-        shell: pwsh
+        shell: powershell
         run: |
           Expand-Archive -Path ./rustdesk/signed_files.zip -DestinationPath ./rustdesk/ -Force
           Remove-Item ./rustdesk/unsigned_files.zip
@@ -571,7 +571,7 @@ jobs:
 
       - name: zip exe and msi
         continue-on-error: true
-        shell: pwsh
+        shell: powershell
         run: |
           Compress-Archive -Path ./SignOutput/*.exe, ./SignOutput/*.msi -DestinationPath ./SignOutput/unsigned_files.zip -CompressionLevel Fastest
 
@@ -591,7 +591,7 @@ jobs:
 
       - name: unzip exe and msi
         continue-on-error: true
-        shell: pwsh
+        shell: powershell
         run: |
           Expand-Archive -Path ./SignOutput/signed_files.zip -DestinationPath ./SignOutput/ -Force
           Remove-Item ./SignOutput/unsigned_files.zip
