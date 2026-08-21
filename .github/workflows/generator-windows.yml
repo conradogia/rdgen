@@ -90,11 +90,6 @@ jobs:
         with:
           name: encrypted-secrets-zip
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
       - name: Load Secrets
         uses: ./.github/actions/decrypt-secrets
         with:
