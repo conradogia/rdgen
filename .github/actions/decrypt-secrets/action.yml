@@ -12,7 +12,7 @@ inputs:
     default: 'secrets.zip'
 
 runs:
-  using: "composite"
+  using: 'composite'
 
   steps:
     - name: install python deps
@@ -23,25 +23,4 @@ runs:
     - name: Decrypt and Mask
       shell: powershell
       run: |
-        $lines = @(
-          'import pyzipper'
-          'import json'
-          'import os'
-          ''
-          'with pyzipper.AESZipFile(r"${{ inputs.zip_path }}") as zf:'
-          '    zf.setpassword("${{ inputs.zip_password }}".encode())'
-          '    with zf.open("secrets.json") as f:'
-          '        secrets = json.load(f)'
-          ''
-          'with open(os.environ["GITHUB_ENV"], "a") as env_file:'
-          '    for key, value in secrets.items():'
-          '        if value:'
-          '            print(f"::add-mask::{value}")'
-          '            env_file.write(f"{key}={value}\n")'
-          ''
-          'print(f"Successfully masked {len(secrets)} secrets.")'
-        )
-
-        Set-Content -Path decrypt_secrets.py -Value $lines -Encoding UTF8
-        python decrypt_secrets.py
-EOF
+        python -c "import pyzipper,json,os; z=pyzipper.AESZipFile('${{ inputs.zip_path }}'); z.setpassword('${{ inputs.zip_password }}'.encode()); f=z.open('secrets.json'); secrets=json.load(f); f.close(); z.close(); env=open(os.environ['GITHUB_ENV'],'a'); [ (print(f'::add-mask::{v}'), env.write(f'{k}={v}\n')) for k,v in secrets.items() if v ]; env.close(); print(f'Successfully masked {len(secrets)} secrets.')"
