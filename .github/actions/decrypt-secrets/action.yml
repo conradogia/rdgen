@@ -18,13 +18,11 @@ runs:
     - name: install python deps
       shell: powershell
       run: |
-        & "${{ steps.setup-python.outputs.python-path }}" -m pip install pyzipper
+        python -m pip install pyzipper
 
     - name: Decrypt and Mask
       shell: powershell
       run: |
-        $python = "${{ steps.setup-python.outputs.python-path }}"
-
         $lines = @(
           'import pyzipper'
           'import json'
@@ -45,4 +43,5 @@ runs:
         )
 
         Set-Content -Path decrypt_secrets.py -Value $lines -Encoding UTF8
-        & $python decrypt_secrets.py
+        python decrypt_secrets.py
+EOF
