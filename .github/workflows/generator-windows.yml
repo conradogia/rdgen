@@ -559,58 +559,76 @@ jobs:
         echo ===== WINDOWS SDK =====
         dir "C:\Program Files (x86)\Windows Kits\10\Include" /ad
 
+      - name: Verify MSVC C compiler environment
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64
+
+          echo ===== CL =====
+          where cl
+
+          echo ===== LINK =====
+          where link
+
+          echo ===== CLANG =====
+          where clang
+          where clang-cl
+
+          echo ===== INCLUDE =====
+          echo %INCLUDE%
+
+          echo ===== CHECK STDINT.H =====
+          where /R "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC" stdint.h
+          where /R "C:\Program Files (x86)\Windows Kits\10\Include" stdint.h
+
       - name: Build rustdesk
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64
 
-          set "PATH=C:\Program Files\LLVM\bin;%PATH%"
-
-          echo ===== CLANG =====
-          where clang
-          clang --version
-
-          echo ===== MSVC =====
+          echo ===== TOOLCHAIN =====
           where cl
           where link
+          where clang
+          where clang-cl
+
+          cl
+          clang-cl --version
 
           echo ===== INCLUDE =====
           echo %INCLUDE%
 
-          echo ===== C_INCLUDE_PATH =====
-          echo %C_INCLUDE_PATH%
+          echo ===== LIB =====
+          echo %LIB%
 
-          echo ===== CPLUS_INCLUDE_PATH =====
-          echo %CPLUS_INCLUDE_PATH%
+          echo ===== PATH =====
+          echo %PATH%
 
-          echo ===== BUILD =====
+          echo ===== BUILD RUSTDESK =====
           python build.py --portable --hwcodec --flutter --vram --skip-portable
 
-          if errorlevel 1 exit /b 1
+          if errorlevel 1 (
+            echo RustDesk build failed
+            exit /b 1
+          )
 
           if not exist ".\flutter\build\windows\x64\runner\Release" (
-            echo ERROR: RustDesk build did not produce Release directory
+            echo ERROR: Release directory was not generated
             exit /b 1
           )
 
           move ".\flutter\build\windows\x64\runner\Release" ".\rustdesk"
 
           echo ===== DOWNLOAD USBMMIDD =====
-          powershell -Command "Invoke-WebRequest -Uri 'https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip' -OutFile 'usbmmidd_v2.zip'"
+          powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip' -OutFile 'usbmmidd_v2.zip'"
 
-          powershell -Command "Expand-Archive 'usbmmidd_v2.zip' -DestinationPath '.' -Force"
+          powershell -NoProfile -Command "Expand-Archive -Path 'usbmmidd_v2.zip' -DestinationPath '.' -Force"
 
-          powershell -Command "Remove-Item -Path 'usbmmidd_v2\Win32' -Recurse -Force"
+          powershell -NoProfile -Command "Remove-Item -Path '.\usbmmidd_v2\Win32' -Recurse -Force -ErrorAction SilentlyContinue"
 
-          powershell -Command "Remove-Item -Path 'usbmmidd_v2\deviceinstaller64.exe','usbmmidd_v2\deviceinstaller.exe','usbmmidd_v2\usbmmidd.bat' -Force"
+          powershell -NoProfile -Command "Remove-Item -Path '.\usbmmidd_v2\deviceinstaller64.exe','.\usbmmidd_v2\deviceinstaller.exe' -Force -ErrorAction SilentlyContinue"
 
           move /Y ".\usbmmidd_v2" ".\rustdesk"
-      - name: icon stuff
-        if: ${{ env.iconlink_url != 'false' }}
-        continue-on-error: true
-        run: |
-          mv ./rustdesk/data/flutter_assets/assets/icon.svg ./rustdesk/data/flutter_assets/assets/icon.svg.bak
-          magick ./res/icon.png ./rustdesk/data/flutter_assets/assets/icon.svg
 
       - name: logo stuff
         if: ${{ env.logolink_url != 'false' }}
