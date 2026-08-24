@@ -519,142 +519,159 @@ jobs:
           flutter pub run flutter_launcher_icons
           cd ..
 
-      - name: Setup MSVC environment
+      - name: Prepare MSVC LLVM and bindgen
         shell: powershell
         run: |
+          $ErrorActionPreference = "Stop"
+
           $vsDevCmd = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
+          $llvmBin = "C:\Program Files\LLVM\bin"
+          $msvcRootBase = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC"
+          $sdkRoot = "C:\Program Files (x86)\Windows Kits\10"
 
-          if (!(Test-Path $vsDevCmd)) {
-            throw "VsDevCmd.bat not found: $vsDevCmd"
-          }
+          if (!(Test-Path $vsDevCmd)) { throw "VsDevCmd.bat not found: $vsDevCmd" }
+          if (!(Test-Path "$llvmBin\clang.exe")) { throw "clang.exe not found: $llvmBin" }
+          if (!(Test-Path "$llvmBin\clang-cl.exe")) { throw "clang-cl.exe not found: $llvmBin" }
 
-          cmd.exe /c "`"$vsDevCmd`" -arch=x64 && set" | ForEach-Object {
-            if ($_ -match '^([^=]+)=(.*)$') {
-              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $vsEnv = cmd.exe /c "`"$vsDevCmd`" -arch=x64 -host_arch=x64 && set"
+          foreach ($line in $vsEnv) {
+            if ($line -match '^([^=]+)=(.*)$') {
+              $name = $matches[1]
+              $value = $matches[2]
+              if ($name -in @("PATH", "INCLUDE", "LIB", "LIBPATH")) {
+                "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+                Set-Item "Env:$name" $value
+              }
             }
           }
 
-          Write-Host "MSVC environment loaded"
+          $env:PATH = "$llvmBin;$env:PATH"
+          "PATH=$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "LIBCLANG_PATH=$llvmBin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Verify MSVC
-        shell: powershell
-        run: |
+          $msvc = Get-ChildItem $msvcRootBase -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if (!$msvc) { throw "MSVC toolset not found" }
+
+          $msvcInclude = Join-Path $msvc.FullName "include"
+          if (!(Test-Path "$msvcInclude\stdint.h")) {
+            throw "MSVC stdint.h not found: $msvcInclude\stdint.h"
+          }
+
+          $sdk = Get-ChildItem "$sdkRoot\Include" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if (!$sdk) { throw "Windows SDK not found" }
+
+          $sdkInclude = $sdk.FullName
+          $sdkUm = Join-Path $sdkInclude "um"
+          $sdkUcrt = Join-Path $sdkInclude "ucrt"
+          $sdkShared = Join-Path $sdkInclude "shared"
+          $sdkWinrt = Join-Path $sdkInclude "winrt"
+
+          $bindgenArgs = @(
+            "--target=x86_64-pc-windows-msvc"
+            "-isystem"; $msvcInclude
+            "-isystem"; $sdkUm
+            "-isystem"; $sdkUcrt
+            "-isystem"; $sdkShared
+            "-isystem"; $sdkWinrt
+          ) -join " "
+
+          "BINDGEN_EXTRA_CLANG_ARGS=$bindgenArgs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $env:BINDGEN_EXTRA_CLANG_ARGS = $bindgenArgs
+
+          Write-Host "MSVC toolset: $($msvc.Name)"
+          Write-Host "Windows SDK: $($sdk.Name)"
+          Write-Host "MSVC include: $msvcInclude"
+          Write-Host "SDK include: $sdkInclude"
+
           where.exe cl
           where.exe link
-          cl
-          link
+          where.exe clang
+          where.exe clang-cl
 
-      - name: Setup C++ environment
-      shell: cmd
-      run: |
-        call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64
+          & "$llvmBin\clang-cl.exe" --version
 
-        echo ===== MSVC =====
-        where cl
-        where link
+          $testC = Join-Path $env:TEMP "rdgen_stdint_test.c"
+          $testObj = Join-Path $env:TEMP "rdgen_stdint_test.obj"
+          @("#include <stdint.h>"; "int main(void) { return 0; }") | Set-Content $testC -Encoding ascii
 
-        echo ===== CLANG =====
-        where clang
-        clang --version
+          & "$llvmBin\clang-cl.exe" /nologo /c $testC /Fo$testObj
+          if ($LASTEXITCODE -ne 0) { throw "clang-cl cannot compile stdint.h" }
 
-        echo ===== INCLUDE =====
-        echo %INCLUDE%
+          Remove-Item $testC, $testObj -Force -ErrorAction SilentlyContinue
+          Write-Host "C/C++ TOOLCHAIN OK"
 
-        echo ===== LIB =====
-        echo %LIB%
-
-        echo ===== STDINT =====
-        dir "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.40.33807\include\stdint.h"
-
-        echo ===== WINDOWS SDK =====
-        dir "C:\Program Files (x86)\Windows Kits\10\Include" /ad
-
-      - name: Verify MSVC C compiler environment
+      - name: Fetch hwcodec sources
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64
+          cargo fetch --locked
+          if errorlevel 1 exit /b 1
 
-          echo ===== CL =====
-          where cl
-
-          echo ===== LINK =====
-          where link
-
-          echo ===== CLANG =====
-          where clang
-          where clang-cl
-
-          echo ===== INCLUDE =====
-          echo %INCLUDE%
-
-          echo ===== CHECK STDINT.H =====
-          where /R "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC" stdint.h
-          where /R "C:\Program Files (x86)\Windows Kits\10\Include" stdint.h
-
-      - name: Patch hwcodec build environment
+      - name: Patch hwcodec bindgen
         shell: powershell
         run: |
-          $cargoHome = if ($env:CARGO_HOME) {
-            $env:CARGO_HOME
-          } else {
-            Join-Path $env:USERPROFILE ".cargo"
-          }
+          $ErrorActionPreference = "Stop"
 
-          Write-Host "CARGO_HOME = $cargoHome"
+          $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+          $checkouts = Join-Path $cargoHome "git\checkouts"
 
-          $hwcodec = Get-ChildItem "$cargoHome\git\checkouts" -Directory -Filter "hwcodec-*" -ErrorAction SilentlyContinue |
+          $hwcodec = Get-ChildItem $checkouts -Directory -Filter "hwcodec-*" |
+            Where-Object { Test-Path (Join-Path $_.FullName "778df1f\build.rs") } |
             Select-Object -First 1
 
-          if (-not $hwcodec) {
-            throw "hwcodec checkout not found"
+          if (!$hwcodec) { throw "hwcodec checkout for 778df1f was not found" }
+
+          $hwcodecPath = Join-Path $hwcodec.FullName "778df1f"
+          $buildRs = Join-Path $hwcodecPath "build.rs"
+
+          $msvc = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC" -Directory |
+            Sort-Object Name -Descending | Select-Object -First 1
+          $sdk = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -Directory |
+            Sort-Object Name -Descending | Select-Object -First 1
+
+          if (!$msvc -or !$sdk) { throw "MSVC or Windows SDK not found" }
+
+          $msvcInclude = (Join-Path $msvc.FullName "include")
+          $sdkInclude = $sdk.FullName
+          $sdkUm = Join-Path $sdkInclude "um"
+          $sdkUcrt = Join-Path $sdkInclude "ucrt"
+          $sdkShared = Join-Path $sdkInclude "shared"
+          $sdkWinrt = Join-Path $sdkInclude "winrt"
+
+          Copy-Item $buildRs "$buildRs.original" -Force
+          $source = Get-Content $buildRs -Raw
+
+          $helper = @"
+          fn bindgen_builder() -> bindgen::Builder {
+              bindgen::builder()
+                  .clang_arg("--target=x86_64-pc-windows-msvc")
+                  .clang_arg("-isystem")
+                  .clang_arg(r"$msvcInclude")
+                  .clang_arg("-isystem")
+                  .clang_arg(r"$sdkUm")
+                  .clang_arg("-isystem")
+                  .clang_arg(r"$sdkUcrt")
+                  .clang_arg("-isystem")
+                  .clang_arg(r"$sdkShared")
+                  .clang_arg("-isystem")
+                  .clang_arg(r"$sdkWinrt")
           }
 
-          $commit = Join-Path $hwcodec.FullName "778df1f"
+          "@
 
-          if (-not (Test-Path $commit)) {
-            throw "hwcodec commit checkout not found: $commit"
-          }
+          $source = $source.Replace("fn main() {", "$helper`r`nfn main() {")
+          $source = $source.Replace("bindgen::builder()", "bindgen_builder()")
+          $source = $source.Replace(
+            "fn bindgen_builder() -> bindgen::Builder {`r`n    bindgen_builder()",
+            "fn bindgen_builder() -> bindgen::Builder {`r`n    bindgen::builder()"
+          )
 
-          Write-Host "hwcodec = $commit"
+          if ($source -notmatch 'fn bindgen_builder\(\)') { throw "bindgen_builder was not added" }
+          if ($source -notmatch 'x86_64-pc-windows-msvc') { throw "MSVC target missing from bindgen patch" }
 
-          $buildRs = Join-Path $commit "build.rs"
-
-          if (-not (Test-Path $buildRs)) {
-            throw "hwcodec build.rs not found"
-          }
-
-          Copy-Item $buildRs "$buildRs.bak" -Force
-
-          $text = Get-Content $buildRs -Raw
-
-          $text = $text -replace `
-            'let mut build = cc::Build::new\(\);', `
-            'let mut build = cc::Build::new(); build.compiler("clang-cl");'
-
-          Set-Content $buildRs $text -Encoding UTF8
+          Set-Content $buildRs $source -Encoding UTF8
 
           Write-Host "===== PATCHED HWCODEC BUILD.RS ====="
           Get-Content $buildRs
-
-      - name: Verify C++ compiler
-        shell: cmd
-        run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
-          set "PATH=C:\Program Files\LLVM\bin;%PATH%"
-
-          where cl
-          where link
-          where clang
-          where clang-cl
-
-          echo #include ^<stdint.h^> > test.c
-          echo int main^(void^) { return 0; } >> test.c
-
-          clang-cl /nologo /c test.c /Fo:test.obj
-
-          if errorlevel 1 exit /b 1
-
-          echo C++ TOOLCHAIN OK
 
       - name: Build rustdesk
         shell: cmd
@@ -662,155 +679,48 @@ jobs:
           @echo off
           setlocal EnableExtensions EnableDelayedExpansion
 
-          echo ==================================================
-          echo INITIALIZING VISUAL STUDIO
-          echo ==================================================
-
           call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
-
-          if errorlevel 1 (
-            echo ERROR: VsDevCmd failed
-            exit /b 1
-          )
-
-          echo ==================================================
-          echo LLVM
-          echo ==================================================
+          if errorlevel 1 exit /b 1
 
           set "LLVM_BIN=C:\Program Files\LLVM\bin"
-
-          if not exist "%LLVM_BIN%\clang.exe" (
-            echo ERROR: clang.exe not found
-            exit /b 1
-          )
-
-          if not exist "%LLVM_BIN%\clang-cl.exe" (
-            echo ERROR: clang-cl.exe not found
-            exit /b 1
-          )
-
           set "PATH=%LLVM_BIN%;%PATH%"
           set "LIBCLANG_PATH=%LLVM_BIN%"
 
-          echo ==================================================
-          echo VERIFY MSVC
-          echo ==================================================
-
           where cl
-          if errorlevel 1 exit /b 1
-
           where link
-          if errorlevel 1 exit /b 1
-
-          echo ==================================================
-          echo VERIFY LLVM
-          echo ==================================================
-
           where clang
-          if errorlevel 1 exit /b 1
-
           where clang-cl
-          if errorlevel 1 exit /b 1
 
-          clang --version
-          clang-cl --version
-
-          echo ==================================================
-          echo VERIFY MSVC HEADERS
-          echo ==================================================
-
-          if not exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.40.33807\include\stdint.h" (
-            echo ERROR: MSVC stdint.h not found
-            exit /b 1
-          )
-
-          echo stdint.h FOUND
-
-          echo ==================================================
-          echo VERIFY CLANG-CL
-          echo ==================================================
-
-          (
-            echo #include ^<stdint.h^>
-            echo int main^(void^) { return 0; }
-          ) > "%TEMP%\rdgen_test.c"
-
-          clang-cl /nologo /c "%TEMP%\rdgen_test.c" /Fo"%TEMP%\rdgen_test.obj"
-
-          if errorlevel 1 (
-            echo ERROR: clang-cl cannot compile stdint.h
-            exit /b 1
-          )
-
-          echo clang-cl stdint.h TEST PASSED
-
-          del /q "%TEMP%\rdgen_test.c" 2>nul
-          del /q "%TEMP%\rdgen_test.obj" 2>nul
-
-          echo ==================================================
-          echo BUILD RUSTDESK
-          echo ==================================================
-
+          echo ===== BUILD RUSTDESK =====
           python build.py --portable --hwcodec --flutter --vram --skip-portable
 
           if errorlevel 1 (
-            echo ==================================================
-            echo ERROR: RUSTDESK BUILD FAILED
-            echo ==================================================
+            echo ERROR: RustDesk build failed
             exit /b 1
           )
-
-          echo ==================================================
-          echo VERIFY OUTPUT
-          echo ==================================================
 
           if not exist ".\flutter\build\windows\x64\runner\Release" (
             echo ERROR: Release directory was not generated
             exit /b 1
           )
 
+          if exist ".\rustdesk" rmdir /s /q ".\rustdesk"
           move ".\flutter\build\windows\x64\runner\Release" ".\rustdesk"
+          if errorlevel 1 exit /b 1
 
-          if errorlevel 1 (
-            echo ERROR: Failed to move Release directory
-            exit /b 1
-          )
-
-          echo ==================================================
-          echo DOWNLOAD USBMMIDD
-          echo ==================================================
-
+          echo ===== DOWNLOAD USBMMIDD =====
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip' -OutFile 'usbmmidd_v2.zip'"
-
           if errorlevel 1 exit /b 1
 
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path 'usbmmidd_v2.zip' -DestinationPath '.' -Force"
-
           if errorlevel 1 exit /b 1
 
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path '.\usbmmidd_v2\Win32' -Recurse -Force -ErrorAction SilentlyContinue"
-
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path '.\usbmmidd_v2\deviceinstaller64.exe','.\usbmmidd_v2\deviceinstaller.exe' -Force -ErrorAction SilentlyContinue"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path '.\usbmmidd_v2\Win32' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path '.\usbmmidd_v2\deviceinstaller64.exe','.\usbmmidd_v2\deviceinstaller.exe' -Force -ErrorAction SilentlyContinue"
 
           move /Y ".\usbmmidd_v2" ".\rustdesk"
-
           if errorlevel 1 exit /b 1
 
-          echo ==================================================
-          echo BUILD COMPLETE
-          echo ==================================================
-     
-     - name: logo stuff
-        if: ${{ env.logolink_url != 'false' }}
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 5
-          max_attempts: 3
-          retry_wait_seconds: 15
-          shell: powershell
-          continue_on_error: true
-          command: |
-            Invoke-WebRequest -Uri ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }} -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
+          echo ===== BUILD COMPLETE =====
 
       - name: find Runner.res
         # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
