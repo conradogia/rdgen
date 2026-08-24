@@ -594,59 +594,143 @@ jobs:
       - name: Build rustdesk
         shell: cmd
         run: |
+          @echo off
+          setlocal
+
+          echo ===== INIT VS2022 =====
           call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
           if errorlevel 1 exit /b 1
 
-          set "PATH=C:\Program Files\LLVM\bin;%PATH%"
-          set "LIBCLANG_PATH=C:\Program Files\LLVM\bin"
+          echo ===== LLVM =====
+          set "LLVM_BIN=C:\Program Files\LLVM\bin"
+          set "PATH=%LLVM_BIN%;%PATH%"
+          set "LIBCLANG_PATH=%LLVM_BIN%"
 
-          echo ===== COMPILERS =====
+          echo ===== MSVC =====
           where cl
           where link
+
+          echo ===== LLVM =====
           where clang
           where clang-cl
 
-          echo ===== MSVC =====
-          echo VCToolsInstallDir=%VCToolsInstallDir%
-          echo WindowsSdkDir=%WindowsSdkDir%
-          echo WindowsSDKVersion=%WindowsSDKVersion%
-          echo INCLUDE=%INCLUDE%
+          echo ===== FORCE MSVC INCLUDE =====
+          set "MSVC_ROOT=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.40.33807"
+          set "MSVC_INCLUDE=%MSVC_ROOT%\include"
 
-          echo ===== TEST MSVC HEADERS =====
-          > "%TEMP%\stdint-test.c" echo #include ^<stdint.h^>
-          >> "%TEMP%\stdint-test.c" echo int main(void^) { return 0; }
-          cl /nologo /c "%TEMP%\stdint-test.c" /Fo"%TEMP%\stdint-test.obj"
-          if errorlevel 1 (
-            echo ERROR: MSVC environment is incomplete
+          echo MSVC_ROOT=%MSVC_ROOT%
+          echo MSVC_INCLUDE=%MSVC_INCLUDE%
+
+          if not exist "%MSVC_INCLUDE%\stdint.h" (
+            echo ERROR: stdint.h not found
             exit /b 1
           )
 
+          echo stdint.h FOUND
+
+          echo ===== WINDOWS SDK =====
+          set "SDK_ROOT=C:\Program Files (x86)\Windows Kits\10"
+          for /f "delims=" %%i in ('dir /b /ad "%SDK_ROOT%\Include" 2^>nul ^| sort /r') do (
+            set "SDK_VERSION=%%i"
+            goto :sdk_found
+          )
+
+          echo ERROR: Windows SDK not found
+          exit /b 1
+
+          :sdk_found
+          echo SDK_VERSION=%SDK_VERSION%
+
+          set "SDK_INCLUDE=%SDK_ROOT%\Include\%SDK_VERSION%"
+          set "SDK_UM_INCLUDE=%SDK_INCLUDE%\um"
+          set "SDK_UCRT_INCLUDE=%SDK_INCLUDE%\ucrt"
+          set "SDK_SHARED_INCLUDE=%SDK_INCLUDE%\shared"
+          set "SDK_WINRT_INCLUDE=%SDK_INCLUDE%\winrt"
+
+          if not exist "%SDK_UCRT_INCLUDE%\stdint.h" (
+            echo WARNING: SDK stdint.h not found
+          )
+
+          echo ===== C/C++ INCLUDE =====
+          set "INCLUDE=%MSVC_INCLUDE%;%SDK_UM_INCLUDE%;%SDK_UCRT_INCLUDE%;%SDK_SHARED_INCLUDE%;%SDK_WINRT_INCLUDE%;%INCLUDE%"
+
+          echo INCLUDE=%INCLUDE%
+
+          echo ===== FORCE CLANG INCLUDE =====
+          set "CFLAGS=-imsvc "%MSVC_INCLUDE%" -imsvc "%SDK_UM_INCLUDE%" -imsvc "%SDK_UCRT_INCLUDE%" -imsvc "%SDK_SHARED_INCLUDE%" -imsvc "%SDK_WINRT_INCLUDE%" %CFLAGS%"
+          set "CXXFLAGS=-imsvc "%MSVC_INCLUDE%" -imsvc "%SDK_UM_INCLUDE%" -imsvc "%SDK_UCRT_INCLUDE%" -imsvc "%SDK_SHARED_INCLUDE%" -imsvc "%SDK_WINRT_INCLUDE%" %CXXFLAGS%"
+
+          echo CFLAGS=%CFLAGS%
+          echo CXXFLAGS=%CXXFLAGS%
+
+          echo ===== TEST CLANG-CL =====
+          echo #include ^<stdint.h^> > "%TEMP%\rdgen_test.c"
+          echo int main^(void^) { return 0; } >> "%TEMP%\rdgen_test.c"
+
+          clang-cl /nologo /c "%TEMP%\rdgen_test.c" /Fo"%TEMP%\rdgen_test.obj"
+          if errorlevel 1 (
+            echo ERROR: clang-cl cannot find MSVC headers
+            exit /b 1
+          )
+
+          echo CLANG-CL HEADER TEST OK
+
+          del /q "%TEMP%\rdgen_test.c" 2>nul
+          del /q "%TEMP%\rdgen_test.obj" 2>nul
+
+          echo ===== RUST ENVIRONMENT =====
+
+          set "CC_x86_64_pc_windows_msvc=clang-cl"
+          set "CXX_x86_64_pc_windows_msvc=clang-cl"
+
+          set "CC=clang-cl"
+          set "CXX=clang-cl"
+
+          set "BINDGEN_EXTRA_CLANG_ARGS=--target=x86_64-pc-windows-msvc -isystem "%MSVC_INCLUDE%" -isystem "%SDK_UM_INCLUDE%" -isystem "%SDK_UCRT_INCLUDE%" -isystem "%SDK_SHARED_INCLUDE%" -isystem "%SDK_WINRT_INCLUDE%""
+
+          echo CC=%CC%
+          echo CXX=%CXX%
+          echo BINDGEN_EXTRA_CLANG_ARGS=%BINDGEN_EXTRA_CLANG_ARGS%
+
           echo ===== BUILD RUSTDESK =====
+
           python build.py --portable --hwcodec --flutter --vram --skip-portable
+
           if errorlevel 1 (
             echo ERROR: RustDesk build failed
             exit /b 1
           )
 
+          echo ===== VERIFY OUTPUT =====
+
           if not exist ".\flutter\build\windows\x64\runner\Release" (
-            echo ERROR: Flutter Release directory was not generated
+            echo ERROR: Release directory was not generated
             exit /b 1
           )
 
-          if exist ".\rustdesk" rmdir /S /Q ".\rustdesk"
           move ".\flutter\build\windows\x64\runner\Release" ".\rustdesk"
+
           if errorlevel 1 exit /b 1
 
           echo ===== DOWNLOAD USBMMIDD =====
+
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip' -OutFile 'usbmmidd_v2.zip'"
+
           if errorlevel 1 exit /b 1
 
           powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path 'usbmmidd_v2.zip' -DestinationPath '.' -Force"
+
           if errorlevel 1 exit /b 1
 
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path '.\usbmmidd_v2\Win32' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path '.\usbmmidd_v2\deviceinstaller64.exe','.\usbmmidd_v2\deviceinstaller.exe' -Force -ErrorAction SilentlyContinue"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path '.\usbmmidd_v2\Win32' -Recurse -Force -ErrorAction SilentlyContinue"
+
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path '.\usbmmidd_v2\deviceinstaller64.exe','.\usbmmidd_v2\deviceinstaller.exe' -Force -ErrorAction SilentlyContinue"
 
           move /Y ".\usbmmidd_v2" ".\rustdesk"
+
+          if errorlevel 1 exit /b 1
+
+          echo ===== BUILD COMPLETE =====
      
      - name: logo stuff
         if: ${{ env.logolink_url != 'false' }}
