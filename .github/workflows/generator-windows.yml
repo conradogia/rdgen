@@ -280,6 +280,65 @@ jobs:
         with:
           version: ${{ env.LLVM_VERSION }}
 
+      - name: Configure Clang MSVC headers
+        shell: powershell
+        run: |
+          $vsDevCmd = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
+
+          if (!(Test-Path $vsDevCmd)) {
+            throw "VsDevCmd.bat not found: $vsDevCmd"
+          }
+
+          cmd.exe /c "`"$vsDevCmd`" -arch=x64 && set" > msvc_env.txt
+
+          $envLines = Get-Content msvc_env.txt
+
+          foreach ($line in $envLines) {
+            if ($line -match '^([^=]+)=(.*)$') {
+              $name = $matches[1]
+              $value = $matches[2]
+
+              if ($name -in @("PATH", "INCLUDE", "LIB", "LIBPATH")) {
+                "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+                Set-Item "Env:$name" $value
+              }
+            }
+          }
+
+          $env:PATH = "C:\Program Files\LLVM\bin;$env:PATH"
+
+          $msvc = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC" -Directory |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+
+          $sdk = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -Directory |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+
+          $msvcInclude = "$($msvc.FullName)\include"
+          $ucrtInclude = "$($sdk.FullName)\ucrt"
+          $sharedInclude = "$($sdk.FullName)\shared"
+          $umInclude = "$($sdk.FullName)\um"
+
+          Write-Host "MSVC: $msvcInclude"
+          Write-Host "UCRT: $ucrtInclude"
+          Write-Host "SHARED: $sharedInclude"
+          Write-Host "UM: $umInclude"
+
+          $clangInclude = "$msvcInclude;$ucrtInclude;$sharedInclude;$umInclude"
+
+          "CLANG_INCLUDE_PATH=$clangInclude" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "C_INCLUDE_PATH=$clangInclude" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CPLUS_INCLUDE_PATH=$clangInclude" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          Set-Item Env:CLANG_INCLUDE_PATH $clangInclude
+          Set-Item Env:C_INCLUDE_PATH $clangInclude
+          Set-Item Env:CPLUS_INCLUDE_PATH $clangInclude
+
+          Write-Host "=== stdint.h ==="
+          Get-ChildItem "$msvcInclude" -Filter stdint.h
+          Get-ChildItem "$ucrtInclude" -Filter stdint.h -ErrorAction SilentlyContinue
+
       - name: Verify LLVM and Clang
         shell: powershell
         run: |
@@ -505,6 +564,12 @@ jobs:
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64
 
+          set "PATH=C:\Program Files\LLVM\bin;%PATH%"
+
+          echo ===== CLANG =====
+          where clang
+          clang --version
+
           echo ===== MSVC =====
           where cl
           where link
@@ -512,18 +577,11 @@ jobs:
           echo ===== INCLUDE =====
           echo %INCLUDE%
 
-          echo ===== LIB =====
-          echo %LIB%
+          echo ===== C_INCLUDE_PATH =====
+          echo %C_INCLUDE_PATH%
 
-          echo ===== CLANG =====
-          where clang
-          clang --version
-
-          echo ===== STDINT =====
-          dir "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.40.33807\include\stdint.h"
-
-          echo ===== WINDOWS SDK =====
-          dir "C:\Program Files (x86)\Windows Kits\10\Include" /ad
+          echo ===== CPLUS_INCLUDE_PATH =====
+          echo %CPLUS_INCLUDE_PATH%
 
           echo ===== BUILD =====
           python build.py --portable --hwcodec --flutter --vram --skip-portable
@@ -537,6 +595,16 @@ jobs:
 
           move ".\flutter\build\windows\x64\runner\Release" ".\rustdesk"
 
+          echo ===== DOWNLOAD USBMMIDD =====
+          powershell -Command "Invoke-WebRequest -Uri 'https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip' -OutFile 'usbmmidd_v2.zip'"
+
+          powershell -Command "Expand-Archive 'usbmmidd_v2.zip' -DestinationPath '.' -Force"
+
+          powershell -Command "Remove-Item -Path 'usbmmidd_v2\Win32' -Recurse -Force"
+
+          powershell -Command "Remove-Item -Path 'usbmmidd_v2\deviceinstaller64.exe','usbmmidd_v2\deviceinstaller.exe','usbmmidd_v2\usbmmidd.bat' -Force"
+
+          move /Y ".\usbmmidd_v2" ".\rustdesk"
       - name: icon stuff
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
