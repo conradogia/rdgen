@@ -274,12 +274,7 @@ jobs:
             # Remove Setup Server Tip
             Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/removeSetupServerTip.diff -OutFile removeSetupServerTip.diff
             git apply removeSetupServerTip.diff
-
-      - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v1
-        with:
-          version: ${{ env.LLVM_VERSION }}
-          
+     
       - name: Configure LLVM
         shell: powershell
         run: |
@@ -599,55 +594,61 @@ jobs:
       - name: Build rustdesk
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64
+          call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
+          if errorlevel 1 exit /b 1
 
           set "PATH=C:\Program Files\LLVM\bin;%PATH%"
+          set "LIBCLANG_PATH=C:\Program Files\LLVM\bin"
 
-          echo ===== TOOLCHAIN =====
+          echo ===== COMPILERS =====
           where cl
           where link
           where clang
           where clang-cl
 
-          cl
-          clang-cl --version
+          echo ===== MSVC =====
+          echo VCToolsInstallDir=%VCToolsInstallDir%
+          echo WindowsSdkDir=%WindowsSdkDir%
+          echo WindowsSDKVersion=%WindowsSDKVersion%
+          echo INCLUDE=%INCLUDE%
 
-          echo ===== INCLUDE =====
-          echo %INCLUDE%
-
-          echo ===== LIB =====
-          echo %LIB%
-
-          echo ===== PATH =====
-          echo %PATH%
+          echo ===== TEST MSVC HEADERS =====
+          > "%TEMP%\stdint-test.c" echo #include ^<stdint.h^>
+          >> "%TEMP%\stdint-test.c" echo int main(void^) { return 0; }
+          cl /nologo /c "%TEMP%\stdint-test.c" /Fo"%TEMP%\stdint-test.obj"
+          if errorlevel 1 (
+            echo ERROR: MSVC environment is incomplete
+            exit /b 1
+          )
 
           echo ===== BUILD RUSTDESK =====
           python build.py --portable --hwcodec --flutter --vram --skip-portable
-
           if errorlevel 1 (
-            echo RustDesk build failed
+            echo ERROR: RustDesk build failed
             exit /b 1
           )
 
           if not exist ".\flutter\build\windows\x64\runner\Release" (
-            echo ERROR: Release directory was not generated
+            echo ERROR: Flutter Release directory was not generated
             exit /b 1
           )
 
+          if exist ".\rustdesk" rmdir /S /Q ".\rustdesk"
           move ".\flutter\build\windows\x64\runner\Release" ".\rustdesk"
+          if errorlevel 1 exit /b 1
 
           echo ===== DOWNLOAD USBMMIDD =====
-          powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip' -OutFile 'usbmmidd_v2.zip'"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip' -OutFile 'usbmmidd_v2.zip'"
+          if errorlevel 1 exit /b 1
 
-          powershell -NoProfile -Command "Expand-Archive -Path 'usbmmidd_v2.zip' -DestinationPath '.' -Force"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path 'usbmmidd_v2.zip' -DestinationPath '.' -Force"
+          if errorlevel 1 exit /b 1
 
-          powershell -NoProfile -Command "Remove-Item -Path '.\usbmmidd_v2\Win32' -Recurse -Force -ErrorAction SilentlyContinue"
-
-          powershell -NoProfile -Command "Remove-Item -Path '.\usbmmidd_v2\deviceinstaller64.exe','.\usbmmidd_v2\deviceinstaller.exe' -Force -ErrorAction SilentlyContinue"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path '.\usbmmidd_v2\Win32' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path '.\usbmmidd_v2\deviceinstaller64.exe','.\usbmmidd_v2\deviceinstaller.exe' -Force -ErrorAction SilentlyContinue"
 
           move /Y ".\usbmmidd_v2" ".\rustdesk"
-
-      - name: logo stuff
+     
+     - name: logo stuff
         if: ${{ env.logolink_url != 'false' }}
         uses: nick-fields/retry@v3
         with:
