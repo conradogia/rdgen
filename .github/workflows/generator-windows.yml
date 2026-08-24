@@ -279,6 +279,21 @@ jobs:
         uses: KyleMayes/install-llvm-action@v1
         with:
           version: ${{ env.LLVM_VERSION }}
+          
+      - name: Configure LLVM
+        shell: powershell
+        run: |
+          $llvm = "C:\Program Files\LLVM\bin"
+
+          if (!(Test-Path "$llvm\clang.exe")) {
+            throw "LLVM/Clang not found at $llvm"
+          }
+
+          "$llvm" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+          Write-Host "LLVM configured:"
+          & "$llvm\clang.exe" --version
+          & "$llvm\clang-cl.exe" --version
 
       - name: Configure Clang MSVC headers
         shell: powershell
@@ -585,6 +600,8 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64
+
+          set "PATH=C:\Program Files\LLVM\bin;%PATH%"
 
           echo ===== TOOLCHAIN =====
           where cl
