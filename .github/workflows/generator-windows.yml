@@ -280,6 +280,32 @@ jobs:
         with:
           version: ${{ env.LLVM_VERSION }}
 
+      - name: Verify LLVM and Clang
+        shell: powershell
+        run: |
+          Write-Host "=== LLVM ==="
+          Test-Path "C:\Program Files\LLVM\bin\clang.exe"
+
+          Write-Host "=== PATH ==="
+          $env:PATH -split ';' | Where-Object { $_ -match 'LLVM|clang' }
+
+          Write-Host "=== CLANG ==="
+          where.exe clang
+          clang --version
+
+      - name: Verify Clang headers
+        shell: powershell
+        run: |
+          & "C:\Program Files\LLVM\bin\clang.exe" --version
+
+          Write-Host "=== MSVC stdint.h ==="
+          Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC" -Recurse -Filter stdint.h |
+            Select-Object -First 5 FullName
+
+          Write-Host "=== Windows SDK stdint.h ==="
+          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -Recurse -Filter stdint.h |
+            Select-Object -First 5 FullName
+
       - name: Install flutter
         uses: subosito/flutter-action@v2.12.0 #https://github.com/subosito/flutter-action/issues/277
         with:
