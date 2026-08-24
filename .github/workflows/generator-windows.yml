@@ -449,33 +449,65 @@ jobs:
           cl
           link
 
+      - name: Setup C++ environment
+      shell: cmd
+      run: |
+        call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64
+
+        echo ===== MSVC =====
+        where cl
+        where link
+
+        echo ===== CLANG =====
+        where clang
+        clang --version
+
+        echo ===== INCLUDE =====
+        echo %INCLUDE%
+
+        echo ===== LIB =====
+        echo %LIB%
+
+        echo ===== STDINT =====
+        dir "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.40.33807\include\stdint.h"
+
+        echo ===== WINDOWS SDK =====
+        dir "C:\Program Files (x86)\Windows Kits\10\Include" /ad
+
       - name: Build rustdesk
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat" -arch=x64
 
-          echo ===== MSVC =====
+          echo ===== BUILD ENVIRONMENT =====
           where cl
           where link
-
-          echo ===== INCLUDE =====
+          where clang
           echo %INCLUDE%
-
-          echo ===== LIB =====
           echo %LIB%
 
-          echo ===== CLANG =====
-          where clang
-          clang --version
+          echo ===== BUILD RUSTDESK =====
+          python3 .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
 
-          echo ===== STDINT =====
-          dir "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.40.33807\include\stdint.h"
+          if errorlevel 1 exit /b 1
 
-          echo ===== WINDOWS SDK =====
-          dir "C:\Program Files (x86)\Windows Kits\10\Include" /ad
+          if not exist ".\flutter\build\windows\x64\runner\Release" (
+            echo ERROR: RustDesk build did not generate Release directory
+            exit /b 1
+          )
 
-          echo ===== BUILD =====
-          python build.py --portable --hwcodec --flutter --vram --skip-portable
+          move ".\flutter\build\windows\x64\runner\Release" ".\rustdesk"
+
+          echo ===== DOWNLOAD USBMMIDD =====
+          powershell -Command "Invoke-WebRequest -Uri 'https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip' -OutFile 'usbmmidd_v2.zip'"
+
+          powershell -Command "Expand-Archive 'usbmmidd_v2.zip' -DestinationPath '.' -Force"
+
+          powershell -Command "Remove-Item -Path 'usbmmidd_v2\Win32' -Recurse -Force"
+
+          powershell -Command "Remove-Item -Path 'usbmmidd_v2\deviceinstaller64.exe','usbmmidd_v2\deviceinstaller.exe','usbmmidd_v2\usbmmidd.bat' -Force"
+
+          move /Y ".\usbmmidd_v2" ".\rustdesk"
 
       - name: icon stuff
         if: ${{ env.iconlink_url != 'false' }}
